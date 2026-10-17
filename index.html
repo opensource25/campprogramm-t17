@@ -77,6 +77,10 @@ li.row{
 }
 li.row:last-child{border-bottom:1px solid var(--line)}
 .t{font-variant-numeric:tabular-nums;color:var(--muted);font-size:16px;padding-top:1px;white-space:nowrap}
+.t input[type="time"]{
+  width:100%;border:0;background:transparent;color:inherit;font:inherit;padding:0;margin:0;min-height:1.4em;
+}
+.t input[type="time"]::-webkit-calendar-picker-indicator{opacity:.7;cursor:pointer}
 .x{font-weight:500;overflow-wrap:anywhere}
 .n{display:block;color:var(--muted);font-size:14.5px;font-weight:400;margin-top:1px}
 .n:empty{display:none}
@@ -339,10 +343,22 @@ function rowEl(item, i){
   const li = document.createElement("li");
   li.className = "row";
   li.innerHTML =
-    '<div class="t" data-k="0"></div>' +
+    (editing
+      ? '<div class="t"><input type="time" data-k="0" aria-label="Uhrzeit"></div>'
+      : '<div class="t" data-k="0"></div>') +
     '<div class="x"><span data-k="1" class="xt"></span><span class="n" data-k="2"></span></div>' +
     '<button class="del" aria-label="Termin löschen"><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg></button>';
-  li.querySelector('[data-k="0"]').textContent = item[0];
+  const tEl = li.querySelector('[data-k="0"]');
+  if(tEl.matches("input")){
+    const mins = parseTime(item[0]);
+    if(mins!==null){
+      const h = String(Math.floor(mins/60)).padStart(2,"0");
+      const m = String(mins%60).padStart(2,"0");
+      tEl.value = h+":"+m;
+    }
+  } else {
+    tEl.textContent = item[0];
+  }
   li.querySelector('[data-k="1"]').textContent = item[1];
   li.querySelector('[data-k="2"]').textContent = item[2] ? "(" + item[2] + ")" : "";
   li.querySelector(".del").onclick = () => { data[cur].items.splice(i,1); save(); render(); };
@@ -351,6 +367,7 @@ function rowEl(item, i){
 
 function render(){
   const d = data[cur];
+  sortItemsByTime(d);
   document.querySelectorAll(".day").forEach((b,i)=>{
     const sel = i===cur;
     b.setAttribute("aria-selected", sel);
@@ -378,6 +395,7 @@ function render(){
 
 function applyEditable(){
   document.querySelectorAll("[data-k],[data-f]").forEach(el=>{
+    if(el.matches("input")) return;
     if(editing) el.setAttribute("contenteditable","plaintext-only");
     else el.removeAttribute("contenteditable");
   });
@@ -393,6 +411,16 @@ function applyEditable(){
 /* Aktueller Termin */
 function parseTime(s){
   const m = /(\d{1,2}):(\d{2})/.exec(s); return m ? (+m[1])*60 + (+m[2]) : null;
+}
+function sortItemsByTime(day){
+  day.items = day.items
+    .map((item, idx)=>({item, idx, t: parseTime(item[0])}))
+    .sort((a,b)=>{
+      const at = a.t===null ? Number.POSITIVE_INFINITY : a.t;
+      const bt = b.t===null ? Number.POSITIVE_INFINITY : b.t;
+      return at - bt || a.idx - b.idx;
+    })
+    .map(e=>e.item);
 }
 function markNow(){
   list.querySelectorAll(".now").forEach(e=>e.classList.remove("now"));
@@ -445,13 +473,14 @@ $("done").onclick = () => toggleEdit(false);
 document.addEventListener("input", e=>{
   const el = e.target.closest("[data-k],[data-f]");
   if(!el) return;
-  const txt = el.textContent;
+  const txt = el.matches("input") ? el.value : el.textContent;
   if(el.dataset.f){
     data[cur][el.dataset.f] = txt.trim();
   } else {
     const li = el.closest("li.row"), i = [...list.children].indexOf(li), k = +el.dataset.k;
     if(!data[cur].items[i]) return;
     data[cur].items[i][k] = k===2 ? txt.replace(/^\s*\(|\)\s*$/g,"").trim() : txt.trim();
+    if(k===0){ sortItemsByTime(data[cur]); render(); }
   }
   save();
 });
